@@ -112,8 +112,7 @@ class _MyHomePageState extends State<MyHomePage> {
             bleDeviceFound = device;
           });
         } else {
-          // print(
-          //     "Device found: ${device.name} in ${stopWatchBroadCast.elapsedMilliseconds} ms");
+          // getManufacturerDataFromBroadcast(device);
           stopWatchBroadCast.reset();
         }
       }
@@ -172,8 +171,9 @@ class _MyHomePageState extends State<MyHomePage> {
 
     try {
       await flutterReactiveBle.writeCharacteristicWithoutResponse(
-          characteristic,
-          value: utf8.encode("Hello World"));
+        characteristic,
+        value: utf8.encode("AuthorizedCard"),
+      );
     } on GenericFailure<WriteCharacteristicFailure> {
       _writeCharacter(device, connection);
     }
