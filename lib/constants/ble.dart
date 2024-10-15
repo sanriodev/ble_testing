@@ -8,4 +8,4 @@ final Uuid characteristicsUUID =
 // BLE Distance
 const int rssiDISTANCE = -85;
 
-const List<String> deviceNames = ["EMAT BLE", "TWN4 BLE"];
+const List<String> deviceNames = ["EMAT BLE", "EMAT BLE BC"];

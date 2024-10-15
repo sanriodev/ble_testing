@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:ble_testing/constants/ble.dart';
 import 'package:ble_testing/util/ble_helper.dart';
@@ -64,16 +66,12 @@ class _MyHomePageState extends State<MyHomePage> {
   bool connected = false;
   late StreamSubscription<DiscoveredDevice> _scanStream;
   // late StreamSubscription<ConnectionStateUpdate> currentConnectionStream;
-
+  DiscoveredDevice? bleDeviceFound;
+  Stopwatch connectionStopWatch = Stopwatch();
   Map<String, Map<Future<String>, DiscoveredDevice>> barriers = {};
   Map<String, Map<Future<String>, DiscoveredDevice>> devices = {};
-  int _counter = 0;
-
-  void _incrementCounter() {
-    setState(() {
-      _counter++;
-    });
-  }
+  bool isConnected = false;
+  late StreamSubscription<ConnectionStateUpdate> currentConnectionStream;
 
   @override
   void initState() {
@@ -87,17 +85,98 @@ class _MyHomePageState extends State<MyHomePage> {
 
   void _startScan() async {
     final stopwatch = Stopwatch()..start();
+    final stopWatchBroadCast = Stopwatch()..start();
     _scanStream = flutterReactiveBle.scanForDevices(
         //withServices was an empty array we try it iwth the serviceUUID
-        withServices: [serviceUUID],
-        requireLocationServicesEnabled: false,
+        withServices: [],
+        requireLocationServicesEnabled: true,
         scanMode: ScanMode.lowLatency).listen((device) {
       if (checkDevice(device, devices, barriers)) {
-        print("new Device found: ${device.name}");
-        print("Time taken to connect: ${stopwatch.elapsedMilliseconds} ms");
-        stopwatch.reset();
+        // print("new Device found: ${device.name}");
+        if (device.name == "EMAT BLE") {
+          // print(
+          //     "Device found:${device.name} in ${stopwatch.elapsedMilliseconds} ms");
+          stopwatch.reset();
+          setState(() {
+            bleDeviceFound = device;
+          });
+          // barriers[device.id] = {flutterReactiveBle.connectToDevice(device.id): device};
+        } else {
+          // print(
+          //     "Device found: ${device.name} in ${stopWatchBroadCast.elapsedMilliseconds} ms");
+          stopWatchBroadCast.reset();
+        }
       }
     });
+  }
+
+  void connect(DiscoveredDevice device) {
+    // Stops Scan Stream
+    _stopScan();
+
+    // Tries to establish connection to device
+    currentConnectionStream = flutterReactiveBle
+        .connectToDevice(
+      id: device.id,
+      // connectionTimeout: const Duration(seconds: 1)
+    )
+        .listen((event) async {
+      switch (event.connectionState) {
+        case DeviceConnectionState.connected:
+          _writeCharacter(device, !connected);
+          if (Platform.isAndroid) {
+            flutterReactiveBle.clearGattCache(device.id);
+          }
+          setState(() {
+            isConnected = true;
+          });
+          break;
+        case DeviceConnectionState.disconnected:
+          // await Future.delayed(const Duration(milliseconds: 500));
+          break;
+        default:
+      }
+    });
+  }
+
+  void _writeCharacter(DiscoveredDevice device, bool connection) async {
+    // Gets Character where to write
+    Characteristic character = await sendString(flutterReactiveBle, device);
+
+    // connection to Characteristic
+    final characteristic = QualifiedCharacteristic(
+        serviceId: serviceUUID,
+        characteristicId: character.id,
+        deviceId: device.id);
+
+    // await Future.delayed(const Duration(milliseconds: 200));
+    //Writes Characteristic
+
+    try {
+      await flutterReactiveBle.writeCharacteristicWithoutResponse(
+          characteristic,
+          value: utf8.encode("Hello World"));
+    } on GenericFailure<WriteCharacteristicFailure> {
+      _writeCharacter(device, connection);
+    }
+
+    setState(() {
+      connected = connection;
+    });
+
+    if (Platform.isIOS) {
+      await Future.delayed(const Duration(milliseconds: 700));
+    }
+
+    await currentConnectionStream.cancel();
+  }
+
+  void disconnect() {
+    currentConnectionStream.cancel();
+    setState(() {
+      isConnected = false;
+    });
+    _startScan();
   }
 
   @override
@@ -110,48 +189,42 @@ class _MyHomePageState extends State<MyHomePage> {
     // than having to individually change instances of widgets.
     return Scaffold(
       appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
         title: Text(widget.title),
       ),
       body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
         child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
+            Visibility(
+                visible: bleDeviceFound != null && !isConnected,
+                child: ElevatedButton(
+                    onPressed: () {
+                      connect(bleDeviceFound!);
+                    },
+                    child: const Text("Connect"))),
+            Visibility(
+                visible: isConnected,
+                child: ElevatedButton(
+                    onPressed: () {
+                      disconnect();
+                    },
+                    child: const Text("Disonnect"))),
+            Visibility(
+              visible: isConnected,
+              child: Text(
+                'Connecting took ${connectionStopWatch.elapsedMilliseconds} ms',
+              ),
             ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+            Visibility(
+              visible: !isConnected,
+              child: const Text(
+                'disconnected...',
+              ),
             ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }
