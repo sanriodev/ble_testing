@@ -63,7 +63,6 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   final flutterReactiveBle = FlutterReactiveBle();
-  bool connected = false;
   late StreamSubscription<DiscoveredDevice> _scanStream;
   // late StreamSubscription<ConnectionStateUpdate> currentConnectionStream;
   DiscoveredDevice? bleDeviceFound;
@@ -100,7 +99,6 @@ class _MyHomePageState extends State<MyHomePage> {
           setState(() {
             bleDeviceFound = device;
           });
-          // barriers[device.id] = {flutterReactiveBle.connectToDevice(device.id): device};
         } else {
           // print(
           //     "Device found: ${device.name} in ${stopWatchBroadCast.elapsedMilliseconds} ms");
@@ -110,28 +108,35 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
-  void connect(DiscoveredDevice device) {
+  void connect(DiscoveredDevice device, bool retryOnFailed) {
     // Stops Scan Stream
     _stopScan();
-
+    connectionStopWatch.start();
     // Tries to establish connection to device
     currentConnectionStream = flutterReactiveBle
         .connectToDevice(
-      id: device.id,
-      // connectionTimeout: const Duration(seconds: 1)
-    )
+            id: device.id,
+            servicesWithCharacteristicsToDiscover: {
+              serviceUUID: [characteristicsUUID, weightCharacteristicsUUID]
+            },
+            connectionTimeout: const Duration(seconds: 2))
         .listen((event) async {
+      print(event.connectionState);
       switch (event.connectionState) {
         case DeviceConnectionState.connected:
-          _writeCharacter(device, !connected);
-          if (Platform.isAndroid) {
-            flutterReactiveBle.clearGattCache(device.id);
-          }
-          setState(() {
-            isConnected = true;
-          });
+          _writeCharacter(device, !isConnected);
+
           break;
         case DeviceConnectionState.disconnected:
+          connectionStopWatch.stop();
+          connectionStopWatch.reset();
+          if (retryOnFailed) {
+            await Future.delayed(
+              const Duration(milliseconds: 200),
+            );
+            connect(device, false);
+          }
+
           // await Future.delayed(const Duration(milliseconds: 500));
           break;
         default:
@@ -161,20 +166,22 @@ class _MyHomePageState extends State<MyHomePage> {
     }
 
     setState(() {
-      connected = connection;
+      connectionStopWatch.stop();
+      isConnected = connection;
     });
 
     if (Platform.isIOS) {
       await Future.delayed(const Duration(milliseconds: 700));
     }
 
-    await currentConnectionStream.cancel();
+    // await currentConnectionStream.cancel();
   }
 
   void disconnect() {
     currentConnectionStream.cancel();
     setState(() {
       isConnected = false;
+      connectionStopWatch.reset();
     });
     _startScan();
   }
@@ -200,7 +207,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 visible: bleDeviceFound != null && !isConnected,
                 child: ElevatedButton(
                     onPressed: () {
-                      connect(bleDeviceFound!);
+                      connect(bleDeviceFound!, true);
                     },
                     child: const Text("Connect"))),
             Visibility(
@@ -209,7 +216,7 @@ class _MyHomePageState extends State<MyHomePage> {
                     onPressed: () {
                       disconnect();
                     },
-                    child: const Text("Disonnect"))),
+                    child: const Text("Disconnect"))),
             Visibility(
               visible: isConnected,
               child: Text(
