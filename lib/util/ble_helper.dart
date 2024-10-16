@@ -43,7 +43,7 @@ Map<String, String?> getManufacturerDataFromBroadcast(DiscoveredDevice device) {
       String.fromCharCodes(device.manufacturerData).split("R").last;
   String terminalID = dataString.substring(0, 8);
   String terminalStatus = dataString.substring(8, 9);
-  String? connectedCitizen = null;
+  String? connectedCitizen;
   if (dataString.length > 9) connectedCitizen = dataString.substring(9, 13);
   return {
     "terminalID": terminalID,

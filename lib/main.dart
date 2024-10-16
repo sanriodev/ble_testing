@@ -112,8 +112,13 @@ class _MyHomePageState extends State<MyHomePage> {
             bleDeviceFound = device;
           });
         } else {
-          // getManufacturerDataFromBroadcast(device);
+          var test = getManufacturerDataFromBroadcast(device);
+          if (test["connectedCitizen"] != null ||
+              test['terminalStatus'] == 'L') {
+            bleDeviceFound = null;
+          }
           stopWatchBroadCast.reset();
+          print(test);
         }
       }
     });
