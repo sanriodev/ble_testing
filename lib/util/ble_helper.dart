@@ -1,53 +1,50 @@
 import 'package:ble_testing/constants/ble.dart';
-import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
-bool checkDevice(DiscoveredDevice device, Map devices, Map barriers) {
-  if (device.rssi < rssiDISTANCE) {
-    return false;
+Future<List<BluetoothDevice>> checkDevice(
+    List<ScanResult> device, Map devices, Map barriers) async {
+  List<BluetoothDevice> result = <BluetoothDevice>[];
+  for (var item in device) {
+    if (
+        // await item.device.readRssi() >= rssiDISTANCE &&
+        deviceNames.contains(item.device.platformName) &&
+            !devices.containsKey(item.device.remoteId) &&
+            !barriers.containsKey(item.device.remoteId)) {
+      result.add(item.device);
+    }
   }
-  if (!deviceNames.contains(device.name)) {
-    return false;
-  }
-  if (devices.containsKey(device.id)) {
-    return false;
-  }
-  if (barriers.containsKey(device.id)) {
-    return false;
-  }
-  return true;
+  return result;
 }
 
-Future<Characteristic> sendString(
-    FlutterReactiveBle flutterReactiveBle, DiscoveredDevice device) async {
-  await flutterReactiveBle.discoverAllServices(device.id);
-  List<Service> services =
-      await flutterReactiveBle.getDiscoveredServices(device.id);
+Future<BluetoothCharacteristic> sendString(
+    FlutterBluePlus flutterBlue, BluetoothDevice device) async {
+  List<BluetoothService> services = await device.discoverServices();
 
-  List<Characteristic> allCharacters = [];
-  List<Characteristic> writeableCharacter = [];
+  List<BluetoothCharacteristic> allCharacters = [];
+  List<BluetoothCharacteristic> writeableCharacter = [];
 
   allCharacters = services
-      .firstWhere((element) => element.id == serviceUUID)
+      .firstWhere((element) => element.serviceUuid == serviceUUID)
       .characteristics;
 
   for (var element in allCharacters) {
-    if (element.id == characteristicsUUID) {
+    if (element.characteristicUuid == characteristicsUUID) {
       writeableCharacter.add(element);
     }
   }
   return writeableCharacter.first;
 }
 
-Map<String, String?> getManufacturerDataFromBroadcast(DiscoveredDevice device) {
-  String dataString =
-      String.fromCharCodes(device.manufacturerData).split("R").last;
-  String terminalID = dataString.substring(0, 8);
-  String terminalStatus = dataString.substring(8, 9);
-  String? connectedCitizen;
-  if (dataString.length > 9) connectedCitizen = dataString.substring(9, 13);
-  return {
-    "terminalID": terminalID,
-    "terminalStatus": terminalStatus,
-    "connectedCitizen": connectedCitizen
-  };
-}
+// Map<String, String?> getManufacturerDataFromBroadcast(BluetoothDevice device) {
+//   String dataString =
+//       String.fromCharCodes(device.).split("R").last;
+//   String terminalID = dataString.substring(0, 8);
+//   String terminalStatus = dataString.substring(8, 9);
+//   String? connectedCitizen;
+//   if (dataString.length > 9) connectedCitizen = dataString.substring(9, 13);
+//   return {
+//     "terminalID": terminalID,
+//     "terminalStatus": terminalStatus,
+//     "connectedCitizen": connectedCitizen
+//   };
+// }

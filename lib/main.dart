@@ -1,11 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:ble_testing/constants/ble.dart';
 import 'package:ble_testing/util/ble_helper.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 void main() {
   runApp(const MyApp());
@@ -62,15 +59,15 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  final flutterReactiveBle = FlutterReactiveBle();
-  late StreamSubscription<DiscoveredDevice> _scanStream;
+  final flutterBlue = FlutterBluePlus();
+  late StreamSubscription<List<ScanResult>> _scanStream;
   // late StreamSubscription<ConnectionStateUpdate> currentConnectionStream;
-  DiscoveredDevice? bleDeviceFound;
+  BluetoothDevice? bleDeviceFound;
   Stopwatch connectionStopWatch = Stopwatch();
-  Map<String, Map<Future<String>, DiscoveredDevice>> barriers = {};
-  Map<String, Map<Future<String>, DiscoveredDevice>> devices = {};
+  Map<String, Map<Future<String>, BluetoothDevice>> barriers = {};
+  Map<String, Map<Future<String>, BluetoothDevice>> devices = {};
   bool isConnected = false;
-  late StreamSubscription<ConnectionStateUpdate> currentConnectionStream;
+  late StreamSubscription<BluetoothConnectionState> currentConnectionStream;
 
   @override
   void initState() {
@@ -96,61 +93,57 @@ class _MyHomePageState extends State<MyHomePage> {
 
   void _startScan() async {
     final stopwatch = Stopwatch()..start();
-    final stopWatchBroadCast = Stopwatch()..start();
-    _scanStream = flutterReactiveBle.scanForDevices(
-        //withServices was an empty array we try it iwth the serviceUUID
-        withServices: [],
-        requireLocationServicesEnabled: true,
-        scanMode: ScanMode.lowLatency).listen((device) {
-      if (checkDevice(device, devices, barriers)) {
+    _scanStream = FlutterBluePlus.onScanResults.listen((device) async {
+      List<BluetoothDevice> validDevices =
+          await checkDevice(device, devices, barriers);
+      if (validDevices.isNotEmpty) {
         // print("new Device found: ${device.name}");
-        if (device.name == "EMAT BLE") {
-          // print(
-          //     "Device found:${device.name} in ${stopwatch.elapsedMilliseconds} ms");
-          stopwatch.reset();
-          setState(() {
-            bleDeviceFound = device;
-          });
-        } else {
-          var test = getManufacturerDataFromBroadcast(device);
-          if (test["connectedCitizen"] != null ||
-              test['terminalStatus'] == 'L') {
-            bleDeviceFound = null;
+        for (var item in validDevices) {
+          if (item.platformName == "EMAT BLE") {
+            // print(
+            //     "Device found:${device.name} in ${stopwatch.elapsedMilliseconds} ms");
+            stopwatch.reset();
+            setState(() {
+              bleDeviceFound = item;
+            });
+          } else {
+            // var test = getManufacturerDataFromBroadcast(device);
+            // if (test["connectedCitizen"] != null ||
+            //     test['terminalStatus'] == 'L') {
+            //   bleDeviceFound = null;
+            // }
+            // stopWatchBroadCast.reset();
+            // print(test);
           }
-          stopWatchBroadCast.reset();
-          print(test);
         }
       }
     });
+    await FlutterBluePlus.startScan(
+      withServices: [], // match any of the specified services
+      withNames: deviceNames, // *or* any of the specified names
+    );
   }
 
-  void connect(DiscoveredDevice device, bool retryOnFailed) {
+  void connect(BluetoothDevice device, bool retryOnFailed) async {
     // Stops Scan Stream
     _stopScan();
     connectionStopWatch.start();
     // Tries to establish connection to device
-    currentConnectionStream = flutterReactiveBle
-        .connectToDevice(
-            id: device.id,
-            servicesWithCharacteristicsToDiscover: {
-              serviceUUID: [characteristicsUUID, weightCharacteristicsUUID]
-            },
-            connectionTimeout: const Duration(seconds: 2))
-        .listen((event) async {
-      print(event.connectionState);
-      switch (event.connectionState) {
-        case DeviceConnectionState.connected:
-          _writeCharacter(device, !isConnected);
-
+    currentConnectionStream = device.connectionState.listen((event) {
+      print(event.name);
+      switch (event) {
+        case BluetoothConnectionState.connected:
+          // _writeCharacter(device, !isConnected);
+          setState(() {
+            connectionStopWatch.stop();
+            isConnected = true;
+          });
           break;
-        case DeviceConnectionState.disconnected:
+        case BluetoothConnectionState.disconnected:
           connectionStopWatch.stop();
           connectionStopWatch.reset();
           if (retryOnFailed) {
             currentConnectionStream.cancel();
-            await Future.delayed(
-              const Duration(milliseconds: 200),
-            );
             connect(device, false);
           }
 
@@ -159,41 +152,42 @@ class _MyHomePageState extends State<MyHomePage> {
         default:
       }
     });
+    device.connect(timeout: const Duration(seconds: 1), autoConnect: false);
   }
 
-  void _writeCharacter(DiscoveredDevice device, bool connection) async {
-    // Gets Character where to write
-    Characteristic character = await sendString(flutterReactiveBle, device);
+  // void _writeCharacter(BluetoothDevice device, bool connection) async {
+  //   // Gets Character where to write
+  //   BluetoothCharacteristic character = await sendString(flutterBlue, device);
 
-    // connection to Characteristic
-    final characteristic = QualifiedCharacteristic(
-        serviceId: serviceUUID,
-        characteristicId: character.id,
-        deviceId: device.id);
+  //   // connection to Characteristic
+  //   final characteristic = BluetoothCharacteristic(
+  //       serviceUuid: serviceUUID,
+  //       characteristicUuid: character.characteristicUuid,
+  //       remoteId: device.remoteId);
 
-    // await Future.delayed(const Duration(milliseconds: 200));
-    //Writes Characteristic
+  //   // await Future.delayed(const Duration(milliseconds: 200));
+  //   //Writes Characteristic
 
-    try {
-      await flutterReactiveBle.writeCharacteristicWithoutResponse(
-        characteristic,
-        value: utf8.encode("AuthorizedCard"),
-      );
-    } on GenericFailure<WriteCharacteristicFailure> {
-      _writeCharacter(device, connection);
-    }
+  //   try {
+  //     await FlutterBluePlus.(
+  //       characteristic,
+  //       value: utf8.encode("AuthorizedCard"),
+  //     );
+  //   } on GenericFailure<WriteCharacteristicFailure> {
+  //     _writeCharacter(device, connection);
+  //   }
 
-    setState(() {
-      connectionStopWatch.stop();
-      isConnected = connection;
-    });
+  //   setState(() {
+  //     connectionStopWatch.stop();
+  //     isConnected = connection;
+  //   });
 
-    if (Platform.isIOS) {
-      await Future.delayed(const Duration(milliseconds: 700));
-    }
+  //   if (Platform.isIOS) {
+  //     await Future.delayed(const Duration(milliseconds: 700));
+  //   }
 
-    // await currentConnectionStream.cancel();
-  }
+  //   // await currentConnectionStream.cancel();
+  // }
 
   void disconnect() {
     currentConnectionStream.cancel();
