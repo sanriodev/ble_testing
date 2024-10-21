@@ -68,6 +68,7 @@ class _MyHomePageState extends State<MyHomePage> {
   Map<String, Map<Future<String>, BluetoothDevice>> devices = {};
   bool isConnected = false;
   late StreamSubscription<BluetoothConnectionState> currentConnectionStream;
+  BluetoothDevice? connectedDevice;
 
   @override
   void initState() {
@@ -134,14 +135,16 @@ class _MyHomePageState extends State<MyHomePage> {
       switch (event) {
         case BluetoothConnectionState.connected:
           // _writeCharacter(device, !isConnected);
+          connectedDevice = device;
           setState(() {
             connectionStopWatch.stop();
             isConnected = true;
           });
           break;
         case BluetoothConnectionState.disconnected:
-          connectionStopWatch.stop();
-          connectionStopWatch.reset();
+          connectedDevice = null;
+          // connectionStopWatch.stop();
+          // connectionStopWatch.reset();
           if (retryOnFailed) {
             currentConnectionStream.cancel();
             connect(device, false);
@@ -190,10 +193,12 @@ class _MyHomePageState extends State<MyHomePage> {
   // }
 
   void disconnect() {
+    connectedDevice!.disconnect();
     currentConnectionStream.cancel();
     setState(() {
       isConnected = false;
       connectionStopWatch.reset();
+      connectedDevice = null;
     });
     _startScan();
   }
@@ -210,7 +215,9 @@ class _MyHomePageState extends State<MyHomePage> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
             Visibility(
-                visible: bleDeviceFound != null && !isConnected,
+                visible: bleDeviceFound != null &&
+                    !isConnected &&
+                    connectedDevice == null,
                 child: ElevatedButton(
                     onPressed: () {
                       connect(bleDeviceFound!, true);
@@ -224,13 +231,13 @@ class _MyHomePageState extends State<MyHomePage> {
                     },
                     child: const Text("Disconnect"))),
             Visibility(
-              visible: isConnected,
+              visible: isConnected && connectedDevice != null,
               child: Text(
                 'Connecting took ${connectionStopWatch.elapsedMilliseconds} ms',
               ),
             ),
             Visibility(
-              visible: !isConnected,
+              visible: !isConnected && connectedDevice == null,
               child: const Text(
                 'disconnected...',
               ),
